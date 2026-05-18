@@ -21,6 +21,21 @@ public:
 
   long long memory_consumption() { return index.model_size() + index.data_size(); }
 
+  // ALEX 内部统计：数据节点扩容并只做线性缩放的次数。
+  long long num_expand_and_scales() { return index.get_stats().num_expand_and_scales; }
+
+  // ALEX 内部统计：数据节点扩容并重新训练模型的次数。
+  long long num_expand_and_retrains() { return index.get_stats().num_expand_and_retrains; }
+
+  // ALEX 内部统计：向下分裂次数，表示局部模型需要更深层结构。
+  long long num_downward_splits() { return index.get_stats().num_downward_splits; }
+
+  // ALEX 内部统计：横向分裂次数，表示某个数据节点需要拆成并列节点。
+  long long num_sideways_splits() { return index.get_stats().num_sideways_splits; }
+
+  // ALEX 内部统计：模型节点分裂次数。
+  long long num_model_node_splits() { return index.get_stats().num_model_node_splits; }
+
 private:
   alex::Alex<KEY_TYPE, PAYLOAD_TYPE, alex::AlexCompare, std::allocator < std::pair < KEY_TYPE, PAYLOAD_TYPE>>, false>
   index;

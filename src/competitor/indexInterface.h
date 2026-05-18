@@ -38,4 +38,16 @@ public:
   virtual void init(Param *param = nullptr) = 0;
 
   virtual long long memory_consumption() = 0; // bytes
+
+  // 下面这些统计项主要用于 ALEX。其他索引默认返回 0。
+  // 用虚函数放在统一接口里，是为了 benchmark 可以不关心具体索引类型。
+  virtual long long num_expand_and_scales() { return 0; }
+
+  virtual long long num_expand_and_retrains() { return 0; }
+
+  virtual long long num_downward_splits() { return 0; }
+
+  virtual long long num_sideways_splits() { return 0; }
+
+  virtual long long num_model_node_splits() { return 0; }
 };

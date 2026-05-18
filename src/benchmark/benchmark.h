@@ -76,6 +76,12 @@ class Benchmark {
         uint64_t success_update = 0;
         uint64_t success_remove = 0;
         uint64_t scan_not_enough = 0;
+        // ALEX 的内部结构调整计数。用于观察插入时是否触发扩容、重训和分裂。
+        long long num_expand_and_scales = 0;
+        long long num_expand_and_retrains = 0;
+        long long num_downward_splits = 0;
+        long long num_sideways_splits = 0;
+        long long num_model_node_splits = 0;
 
         void clear() {
             latency.clear();
@@ -87,6 +93,11 @@ class Benchmark {
             success_update = 0;
             success_remove = 0;
             scan_not_enough = 0;
+            num_expand_and_scales = 0;
+            num_expand_and_retrains = 0;
+            num_downward_splits = 0;
+            num_sideways_splits = 0;
+            num_model_node_splits = 0;
         }
     } stat;
 
@@ -400,6 +411,13 @@ public:
         if (memory_record)
             stat.memory_consumption = index->memory_consumption();
 
+        // 从索引接口读取结构调整计数。非 ALEX 索引默认返回 0。
+        stat.num_expand_and_scales = index->num_expand_and_scales();
+        stat.num_expand_and_retrains = index->num_expand_and_retrains();
+        stat.num_downward_splits = index->num_downward_splits();
+        stat.num_sideways_splits = index->num_sideways_splits();
+        stat.num_model_node_splits = index->num_model_node_splits();
+
         print_stat();
 
         delete[] thread_array;
@@ -449,6 +467,8 @@ public:
             ofile << "min" << ",";
             ofile << "50 percentile" << ",";
             ofile << "90 percentile" << ",";
+            // GRE 原本没有 P95，这里补上，便于观察中高尾延迟。
+            ofile << "95 percentile" << ",";
             ofile << "99 percentile" << ",";
             ofile << "99.9 percentile" << ",";
             ofile << "99.99 percentile" << ",";
@@ -461,7 +481,12 @@ public:
             ofile << "data_shift" << ",";
             ofile << "pgm" << ",";
             ofile << "error_bound" ",";
-            ofile << "table_size" << std::endl;
+            ofile << "table_size" << ",";
+            ofile << "num_expand_and_scales" << ",";
+            ofile << "num_expand_and_retrains" << ",";
+            ofile << "num_downward_splits" << ",";
+            ofile << "num_sideways_splits" << ",";
+            ofile << "num_model_node_splits" << std::endl;
         }
 
         std::ofstream ofile;
@@ -478,15 +503,19 @@ public:
         ofile << stat.memory_consumption << ",";
         ofile << thread_num << ",";
         if (latency_sample) {
+            // latency_sample 开启时，stat.latency 已经排序；
+            // 这里按位置取 P50/P90/P95/P99 等分位数。
             ofile << stat.latency[0] << ",";
             ofile << stat.latency[0.5 * stat.latency.size()] << ",";
             ofile << stat.latency[0.9 * stat.latency.size()] << ",";
+            ofile << stat.latency[0.95 * stat.latency.size()] << ",";
             ofile << stat.latency[0.99 * stat.latency.size()] << ",";
             ofile << stat.latency[0.999 * stat.latency.size()] << ",";
             ofile << stat.latency[0.9999 * stat.latency.size()] << ",";
             ofile << stat.latency[stat.latency.size() - 1] << ",";
             ofile << avg_latency << ",";
         } else {
+            ofile << 0 << ",";
             ofile << 0 << ",";
             ofile << 0 << ",";
             ofile << 0 << ",";
@@ -503,7 +532,12 @@ public:
         ofile << data_shift << ",";
         ofile << stat.fitness_of_dataset << ",";
         ofile << error_bound << ",";
-        ofile << table_size << std::endl;
+        ofile << table_size << ",";
+        ofile << stat.num_expand_and_scales << ",";
+        ofile << stat.num_expand_and_retrains << ",";
+        ofile << stat.num_downward_splits << ",";
+        ofile << stat.num_sideways_splits << ",";
+        ofile << stat.num_model_node_splits << std::endl;
         ofile.close();
 
         if (clear_flag) stat.clear();
