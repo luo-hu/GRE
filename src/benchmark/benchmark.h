@@ -453,7 +453,9 @@ public:
         std::time_t t = std::time(nullptr);
         char time_str[100];
 
-        if (!file_exists(output_path)) {
+        // 第一次写入 CSV 时输出表头；后续追加时不重复输出表头。
+        // 如果文件已经存在但大小为 0，也视为第一次写入。
+        if (!file_exists(output_path) || file_empty(output_path)) {
             std::ofstream ofile;
             ofile.open(output_path, std::ios::app);
             ofile << "id" << ",";

@@ -220,6 +220,11 @@ bool file_exists(const std::string &str) {
     return fs.is_open();
 }
 
+bool file_empty(const std::string &str) {
+    std::ifstream fs(str, std::ios::binary | std::ios::ate);
+    return !fs.is_open() || fs.tellg() == 0;
+}
+
 template<class T>
 T *get_search_keys_zipf(T array[], int num_keys, int num_searches, size_t *seed = nullptr) {
     auto *keys = new T[num_searches];
@@ -264,5 +269,4 @@ T *unique_data(T *key1, size_t &size1, T *key2, size_t &size2) {
 
     return &key2[result];
 }
-
 

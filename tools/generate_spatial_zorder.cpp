@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <iostream>
 #include <random>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -14,6 +15,8 @@ namespace {
 struct Config {
   // 数据分布类型：uniform 表示均匀二维点，clustered 表示高斯簇二维点。
   std::string dist = "uniform";
+  // 如果提供 input_csv，则不再生成 synthetic 数据，而是读取已有 X,Y CSV。
+  std::string input_csv;
   // 生成点数。
   std::size_t n = 100000;
   // clustered 模式下的簇中心数量。
@@ -54,11 +57,16 @@ Config parse_args(int argc, char **argv) {
       cfg.csv_path = require_value(arg);
     } else if (arg.rfind("--keys=", 0) == 0) {
       cfg.keys_path = require_value(arg);
+    } else if (arg.rfind("--input_csv=", 0) == 0) {
+      cfg.input_csv = require_value(arg);
     } else if (arg == "--help") {
       std::cout
-          << "Usage: generate_spatial_zorder --dist=uniform|clustered "
+          << "Usage synthetic: generate_spatial_zorder --dist=uniform|clustered "
           << "--n=100000 --csv=out.csv --keys=out.keys "
           << "[--clusters=8 --sigma=0.04 --seed=1866]\n";
+      std::cout
+          << "Usage CSV: generate_spatial_zorder --input_csv=in.csv "
+          << "--csv=normalized.csv --keys=out.keys\n";
       std::exit(0);
     } else {
       throw std::invalid_argument("Unknown argument: " + arg);
@@ -83,6 +91,13 @@ Config parse_args(int argc, char **argv) {
     throw std::invalid_argument("--sigma must be positive");
   }
   return cfg;
+}
+
+std::string strip_cr(std::string value) {
+  if (!value.empty() && value.back() == '\r') {
+    value.pop_back();
+  }
+  return value;
 }
 
 std::uint64_t spread_bits(std::uint32_t value) {
@@ -190,13 +205,84 @@ std::vector<std::pair<double, double>> generate_clustered(const Config &cfg) {
   return points;
 }
 
+std::vector<std::pair<double, double>> read_and_normalize_csv(const Config &cfg) {
+  // 读取已有二维点 CSV。当前按两列解析：X,Y。
+  // 原始坐标可以是经纬度或任意实数范围；这里会按 min/max 归一化到 [0,1]。
+  std::ifstream input(cfg.input_csv);
+  if (!input.is_open()) {
+    throw std::runtime_error("Cannot open input CSV: " + cfg.input_csv);
+  }
+
+  std::string line;
+  std::getline(input, line);  // 跳过表头 X,Y。
+
+  std::vector<std::pair<double, double>> raw_points;
+  raw_points.reserve(cfg.n);
+
+  double min_x = 0.0;
+  double max_x = 0.0;
+  double min_y = 0.0;
+  double max_y = 0.0;
+  bool first = true;
+
+  while (std::getline(input, line)) {
+    line = strip_cr(line);
+    if (line.empty()) {
+      continue;
+    }
+
+    std::stringstream ss(line);
+    std::string x_text;
+    std::string y_text;
+    if (!std::getline(ss, x_text, ',') || !std::getline(ss, y_text, ',')) {
+      throw std::runtime_error("Bad CSV line: " + line);
+    }
+
+    const double x = std::stod(x_text);
+    const double y = std::stod(y_text);
+    raw_points.emplace_back(x, y);
+
+    if (first) {
+      min_x = max_x = x;
+      min_y = max_y = y;
+      first = false;
+    } else {
+      min_x = std::min(min_x, x);
+      max_x = std::max(max_x, x);
+      min_y = std::min(min_y, y);
+      max_y = std::max(max_y, y);
+    }
+  }
+
+  if (raw_points.empty()) {
+    throw std::runtime_error("Input CSV has no data points");
+  }
+  if (min_x == max_x || min_y == max_y) {
+    throw std::runtime_error("Input CSV range is degenerate");
+  }
+
+  std::vector<std::pair<double, double>> normalized;
+  normalized.reserve(raw_points.size());
+  for (const auto &[x, y] : raw_points) {
+    normalized.emplace_back((x - min_x) / (max_x - min_x),
+                            (y - min_y) / (max_y - min_y));
+  }
+
+  std::cout << "Read " << raw_points.size() << " points from " << cfg.input_csv << '\n';
+  std::cout << "Original bounds: x=[" << std::setprecision(17) << min_x << ", "
+            << max_x << "], y=[" << min_y << ", " << max_y << "]\n";
+  return normalized;
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
   try {
     const auto cfg = parse_args(argc, argv);
-    const auto points = cfg.dist == "uniform" ? generate_uniform(cfg)
-                                              : generate_clustered(cfg);
+    const auto points = !cfg.input_csv.empty()
+                            ? read_and_normalize_csv(cfg)
+                            : (cfg.dist == "uniform" ? generate_uniform(cfg)
+                                                     : generate_clustered(cfg));
     write_outputs(cfg, points);
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << '\n';
