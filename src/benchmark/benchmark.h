@@ -50,6 +50,8 @@ class Benchmark {
     std::string index_type;
     std::string keys_file_path;
     std::string keys_file_type;
+    std::string anchor_keys_file_path;
+    std::string anchor_keys_file_type;
     std::string sample_distribution;
     bool latency_sample = false;
     double latency_sample_ratio = 0.01;
@@ -61,8 +63,10 @@ class Benchmark {
     bool data_shift = false;
 
     std::vector <KEY_TYPE> init_keys;
+    std::vector <KEY_TYPE> anchor_keys;
     KEY_TYPE *keys;
     std::pair <KEY_TYPE, PAYLOAD_TYPE> *init_key_values;
+    size_t init_key_values_size = 0;
     std::vector <std::pair<Operation, KEY_TYPE>> operations;
     std::mt19937 gen;
 
@@ -82,6 +86,7 @@ class Benchmark {
         long long num_downward_splits = 0;
         long long num_sideways_splits = 0;
         long long num_model_node_splits = 0;
+        size_t anchor_keys_count = 0;
 
         void clear() {
             latency.clear();
@@ -98,6 +103,7 @@ class Benchmark {
             num_downward_splits = 0;
             num_sideways_splits = 0;
             num_model_node_splits = 0;
+            anchor_keys_count = 0;
         }
     } stat;
 
@@ -163,14 +169,33 @@ public:
         }
         tbb::parallel_sort(init_keys.begin(), init_keys.end());
 
-        init_key_values = new std::pair<KEY_TYPE, PAYLOAD_TYPE>[init_keys.size()];
+        load_anchor_keys();
+
+        std::vector<std::pair<KEY_TYPE, PAYLOAD_TYPE>> init_pairs;
+        init_pairs.reserve(init_keys.size() + anchor_keys.size());
+        for (auto key : init_keys) {
+            init_pairs.emplace_back(key, 123456789);
+        }
+        for (auto key : anchor_keys) {
+            // 虚拟锚点只用于改变 bulk-load 时 ALEX 看到的分布。
+            // workload 仍然只从真实 key 生成，因此 point lookup 的统计不会把锚点当成真实命中。
+            init_pairs.emplace_back(key, 0);
+        }
+        std::sort(init_pairs.begin(), init_pairs.end(),
+                  [](const auto &a, const auto &b) { return a.first < b.first; });
+        init_pairs.erase(std::unique(init_pairs.begin(), init_pairs.end(),
+                                     [](const auto &a, const auto &b) { return a.first == b.first; }),
+                         init_pairs.end());
+
+        init_key_values = new std::pair<KEY_TYPE, PAYLOAD_TYPE>[init_pairs.size()];
+        init_key_values_size = init_pairs.size();
 #pragma omp parallel for num_threads(thread_num)
-        for (int i = 0; i < init_keys.size(); i++) {
-            init_key_values[i].first = init_keys[i];
-            init_key_values[i].second = 123456789;
+        for (int i = 0; i < init_pairs.size(); i++) {
+            init_key_values[i] = init_pairs[i];
         }
         COUT_VAR(table_size);
         COUT_VAR(init_keys.size());
+        COUT_VAR(anchor_keys.size());
 
         return keys;
     }
@@ -186,12 +211,40 @@ public:
         thread_num = param.worker_num;
 
         COUT_THIS("bulk loading");
-        index->bulk_load(init_key_values, init_keys.size(), &param);
+        index->bulk_load(init_key_values, init_key_values_size, &param);
+    }
+
+    void load_anchor_keys() {
+        anchor_keys.clear();
+        if (anchor_keys_file_path.empty()) {
+            return;
+        }
+
+        KEY_TYPE *anchor_ptr = nullptr;
+        long long anchor_count = 0;
+        if (anchor_keys_file_type == "binary") {
+            anchor_count = load_binary_data(anchor_ptr, -1, anchor_keys_file_path);
+        } else if (anchor_keys_file_type == "text") {
+            anchor_count = load_text_data(anchor_ptr, -1, anchor_keys_file_path);
+        } else {
+            COUT_THIS("Unsupported anchor key file type.");
+            exit(0);
+        }
+        if (anchor_count <= 0) {
+            COUT_THIS("Could not open anchor key file, please check the path of anchor key file.");
+            exit(0);
+        }
+
+        anchor_keys.assign(anchor_ptr, anchor_ptr + anchor_count);
+        delete[] anchor_ptr;
+        tbb::parallel_sort(anchor_keys.begin(), anchor_keys.end());
+        anchor_keys.erase(std::unique(anchor_keys.begin(), anchor_keys.end()), anchor_keys.end());
     }
 
     /*
    * keys_file_path:      the path where keys file at
    * keys_file_type:      binary or text
+   * anchor_keys_file:    optional virtual anchors, used only during bulk loading
    * read_ratio:          the ratio of read operation
    * insert_ratio         the ratio of insert operation
    * delete_ratio         the ratio of delete operation
@@ -212,6 +265,8 @@ public:
         auto flags = parse_flags(argc, argv);
         keys_file_path = get_required(flags, "keys_file"); // required
         keys_file_type = get_with_default(flags, "keys_file_type", "binary");
+        anchor_keys_file_path = get_with_default(flags, "anchor_keys_file", "");
+        anchor_keys_file_type = get_with_default(flags, "anchor_keys_file_type", "binary");
         read_ratio = stod(get_required(flags, "read")); // required
         insert_ratio = stod(get_with_default(flags, "insert", "0")); // required
         delete_ratio = stod(get_with_default(flags, "delete", "0"));
@@ -417,6 +472,7 @@ public:
         stat.num_downward_splits = index->num_downward_splits();
         stat.num_sideways_splits = index->num_sideways_splits();
         stat.num_model_node_splits = index->num_model_node_splits();
+        stat.anchor_keys_count = anchor_keys.size();
 
         print_stat();
 
@@ -488,7 +544,9 @@ public:
             ofile << "num_expand_and_retrains" << ",";
             ofile << "num_downward_splits" << ",";
             ofile << "num_sideways_splits" << ",";
-            ofile << "num_model_node_splits" << std::endl;
+            ofile << "num_model_node_splits" << ",";
+            ofile << "anchor_keys_file" << ",";
+            ofile << "anchor_keys_count" << std::endl;
         }
 
         std::ofstream ofile;
@@ -539,7 +597,9 @@ public:
         ofile << stat.num_expand_and_retrains << ",";
         ofile << stat.num_downward_splits << ",";
         ofile << stat.num_sideways_splits << ",";
-        ofile << stat.num_model_node_splits << std::endl;
+        ofile << stat.num_model_node_splits << ",";
+        ofile << anchor_keys_file_path << ",";
+        ofile << stat.anchor_keys_count << std::endl;
         ofile.close();
 
         if (clear_flag) stat.clear();

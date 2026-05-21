@@ -32,6 +32,10 @@ add_executable(microbench
         ${CMAKE_CURRENT_SOURCE_DIR}/src/benchmark/microbench.cpp
     )
 
+add_executable(generate_virtual_anchors
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_virtual_anchors.cpp
+    )
+
 target_link_libraries(microbench
         PRIVATE
         # WORMHOLE
