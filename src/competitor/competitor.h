@@ -9,6 +9,7 @@
 #include "./hot/hot.h"
 #include "./hot/hotrowex.h"
 #include "./lipp/lipp.h"
+#include "./lipphybrid/lipphybrid.h"
 #include "./lippol/lippol.h"
 #include "pgm/pgm.h"
 #include "btree/btree.h"
@@ -68,6 +69,9 @@ indexInterface<KEY_TYPE, PAYLOAD_TYPE> *get_index(std::string index_type) {
   }
   else if (index_type == "lipp") {
     index = new LIPPInterface<KEY_TYPE, PAYLOAD_TYPE>;
+  }
+  else if (index_type == "lipphybrid") {
+    index = new LIPPHybridInterface<KEY_TYPE, PAYLOAD_TYPE>;
   }
   else if (index_type == "finedex") {
     index = new finedexInterface<KEY_TYPE, PAYLOAD_TYPE>;
