@@ -73,6 +73,44 @@ indexInterface<KEY_TYPE, PAYLOAD_TYPE> *get_index(std::string index_type) {
   else if (index_type == "lipphybrid") {
     index = new LIPPHybridInterface<KEY_TYPE, PAYLOAD_TYPE>;
   }
+  else if (index_type == "lipphybrid_identity") {
+    index = new LIPPHybridInterface<KEY_TYPE, PAYLOAD_TYPE, LIPPHybridKernelPolicy::IDENTITY_ONLY>;
+  }
+  else if (index_type == "lipphybrid_fallback") {
+    index = new LIPPHybridInterface<KEY_TYPE, PAYLOAD_TYPE, LIPPHybridKernelPolicy::FALLBACK_ONLY>;
+  }
+  else if (index_type == "lipphybrid_aggressive") {
+    index = new LIPPHybridInterface<KEY_TYPE, PAYLOAD_TYPE, LIPPHybridKernelPolicy::ADAPTIVE_AGGRESSIVE>;
+  }
+  else if (index_type == "lipphybrid_log1p") {
+    index = new LIPPHybridInterface<KEY_TYPE, PAYLOAD_TYPE, LIPPHybridKernelPolicy::FORCE_LOG1P>;
+  }
+  else if (index_type == "lipphybrid_sqrt") {
+    index = new LIPPHybridInterface<KEY_TYPE, PAYLOAD_TYPE, LIPPHybridKernelPolicy::FORCE_SQRT>;
+  }
+  else if (index_type == "lipphybrid_compact") {
+    index = new LIPPHybridInterface<KEY_TYPE, PAYLOAD_TYPE,
+                                    LIPPHybridKernelPolicy::IDENTITY_ONLY,
+                                    LIPPHybridCompactPolicy::FORCE>;
+  }
+  else if (index_type == "lipphybrid_adaptive_compact") {
+    index = new LIPPHybridInterface<KEY_TYPE, PAYLOAD_TYPE,
+                                    LIPPHybridKernelPolicy::IDENTITY_ONLY,
+                                    LIPPHybridCompactPolicy::ADAPTIVE>;
+  }
+  else if (index_type == "lipphybrid_aggressive_compact") {
+    index = new LIPPHybridInterface<KEY_TYPE, PAYLOAD_TYPE,
+                                    LIPPHybridKernelPolicy::ADAPTIVE_AGGRESSIVE,
+                                    LIPPHybridCompactPolicy::FORCE>;
+  }
+  else if (index_type == "lipphybrid_aggressive_adaptive_compact") {
+    index = new LIPPHybridInterface<KEY_TYPE, PAYLOAD_TYPE,
+                                    LIPPHybridKernelPolicy::ADAPTIVE_AGGRESSIVE,
+                                    LIPPHybridCompactPolicy::ADAPTIVE>;
+  }
+  else if (index_type == "lipphybrid_cbrt") {
+    index = new LIPPHybridInterface<KEY_TYPE, PAYLOAD_TYPE, LIPPHybridKernelPolicy::FORCE_CBRT>;
+  }
   else if (index_type == "finedex") {
     index = new finedexInterface<KEY_TYPE, PAYLOAD_TYPE>;
   }

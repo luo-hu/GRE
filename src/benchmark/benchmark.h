@@ -86,6 +86,17 @@ class Benchmark {
         long long num_downward_splits = 0;
         long long num_sideways_splits = 0;
         long long num_model_node_splits = 0;
+        // LIPP-Hybrid 的核函数统计。保留 ALEX 原列，同时新增直观列名。
+        long long kernel_nodes = 0;
+        long long log1p_kernel_nodes = 0;
+        long long sqrt_kernel_nodes = 0;
+        long long cbrt_kernel_nodes = 0;
+        long long hardness_sqrt_enabled = 0;
+        long long adaptive_compact_enabled = 0;
+        long long adaptive_compact_candidate_nodes = 0;
+        long long adaptive_compact_estimated_saved_bytes = 0;
+        long long adaptive_compact_estimated_extra_access_bytes = 0;
+        long long compact_leaf_nodes = 0;
         size_t anchor_keys_count = 0;
 
         void clear() {
@@ -103,6 +114,16 @@ class Benchmark {
             num_downward_splits = 0;
             num_sideways_splits = 0;
             num_model_node_splits = 0;
+            kernel_nodes = 0;
+            log1p_kernel_nodes = 0;
+            sqrt_kernel_nodes = 0;
+            cbrt_kernel_nodes = 0;
+            hardness_sqrt_enabled = 0;
+            adaptive_compact_enabled = 0;
+            adaptive_compact_candidate_nodes = 0;
+            adaptive_compact_estimated_saved_bytes = 0;
+            adaptive_compact_estimated_extra_access_bytes = 0;
+            compact_leaf_nodes = 0;
             anchor_keys_count = 0;
         }
     } stat;
@@ -206,6 +227,8 @@ public:
         // initilize Index (sort keys first)
         Param param = Param(thread_num, 0);
         index->init(&param);
+        index->set_workload(read_ratio, insert_ratio, update_ratio, scan_ratio,
+                            delete_ratio, operations_num, scan_num);
 
         // deal with the background thread case
         thread_num = param.worker_num;
@@ -472,6 +495,16 @@ public:
         stat.num_downward_splits = index->num_downward_splits();
         stat.num_sideways_splits = index->num_sideways_splits();
         stat.num_model_node_splits = index->num_model_node_splits();
+        stat.kernel_nodes = index->kernel_nodes();
+        stat.log1p_kernel_nodes = index->log1p_kernel_nodes();
+        stat.sqrt_kernel_nodes = index->sqrt_kernel_nodes();
+        stat.cbrt_kernel_nodes = index->cbrt_kernel_nodes();
+        stat.hardness_sqrt_enabled = index->hardness_sqrt_enabled();
+        stat.adaptive_compact_enabled = index->adaptive_compact_enabled();
+        stat.adaptive_compact_candidate_nodes = index->adaptive_compact_candidate_nodes();
+        stat.adaptive_compact_estimated_saved_bytes = index->adaptive_compact_estimated_saved_bytes();
+        stat.adaptive_compact_estimated_extra_access_bytes = index->adaptive_compact_estimated_extra_access_bytes();
+        stat.compact_leaf_nodes = index->compact_leaf_nodes();
         stat.anchor_keys_count = anchor_keys.size();
 
         print_stat();
@@ -521,6 +554,12 @@ public:
             ofile << "throughput" << ",";
             ofile << "init_table_size" << ",";
             ofile << "memory_consumption" << ",";
+            // 正确性计数也写进 CSV。这样比较新索引时，不需要翻控制台日志才能发现漏读/漏插。
+            ofile << "success_read" << ",";
+            ofile << "success_insert" << ",";
+            ofile << "success_update" << ",";
+            ofile << "success_remove" << ",";
+            ofile << "scan_not_enough" << ",";
             ofile << "thread_num" << ",";
             ofile << "min" << ",";
             ofile << "50 percentile" << ",";
@@ -545,6 +584,16 @@ public:
             ofile << "num_downward_splits" << ",";
             ofile << "num_sideways_splits" << ",";
             ofile << "num_model_node_splits" << ",";
+            ofile << "kernel_nodes" << ",";
+            ofile << "log1p_kernel_nodes" << ",";
+            ofile << "sqrt_kernel_nodes" << ",";
+            ofile << "cbrt_kernel_nodes" << ",";
+            ofile << "hardness_sqrt_enabled" << ",";
+            ofile << "adaptive_compact_enabled" << ",";
+            ofile << "adaptive_compact_candidate_nodes" << ",";
+            ofile << "adaptive_compact_estimated_saved_bytes" << ",";
+            ofile << "adaptive_compact_estimated_extra_access_bytes" << ",";
+            ofile << "compact_leaf_nodes" << ",";
             ofile << "anchor_keys_file" << ",";
             ofile << "anchor_keys_count" << std::endl;
         }
@@ -561,6 +610,11 @@ public:
         ofile << stat.throughput << ",";
         ofile << init_table_size << ",";
         ofile << stat.memory_consumption << ",";
+        ofile << stat.success_read << ",";
+        ofile << stat.success_insert << ",";
+        ofile << stat.success_update << ",";
+        ofile << stat.success_remove << ",";
+        ofile << stat.scan_not_enough << ",";
         ofile << thread_num << ",";
         if (latency_sample) {
             // latency_sample 开启时，stat.latency 已经排序；
@@ -598,6 +652,16 @@ public:
         ofile << stat.num_downward_splits << ",";
         ofile << stat.num_sideways_splits << ",";
         ofile << stat.num_model_node_splits << ",";
+        ofile << stat.kernel_nodes << ",";
+        ofile << stat.log1p_kernel_nodes << ",";
+        ofile << stat.sqrt_kernel_nodes << ",";
+        ofile << stat.cbrt_kernel_nodes << ",";
+        ofile << stat.hardness_sqrt_enabled << ",";
+        ofile << stat.adaptive_compact_enabled << ",";
+        ofile << stat.adaptive_compact_candidate_nodes << ",";
+        ofile << stat.adaptive_compact_estimated_saved_bytes << ",";
+        ofile << stat.adaptive_compact_estimated_extra_access_bytes << ",";
+        ofile << stat.compact_leaf_nodes << ",";
         ofile << anchor_keys_file_path << ",";
         ofile << stat.anchor_keys_count << std::endl;
         ofile.close();

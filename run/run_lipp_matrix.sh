@@ -21,11 +21,28 @@ LATENCY_SAMPLE="${LATENCY_SAMPLE:-1}"
 LATENCY_SAMPLE_RATIO="${LATENCY_SAMPLE_RATIO:-0.01}"
 KEYS_FILE_TYPE="${KEYS_FILE_TYPE:-binary}"
 
-# 默认只比较原版 lipp 和本次新增的 lipphybrid
-# 需要更多 baseline 时可以这样运行：
-#   INDICES="alex alexol btreeolc lipp lipphybrid" bash run/run_lipp_matrix.sh
-
-INDICES="${INDICES:-lipp lipphybrid}"
+# 默认只比较原版 lipp 和 lipphybrid 默认策略。
+# 验证 sqrt 自适应时可以设置 KERNEL_SWEEP=1，默认只跑当前还值得继续比较的版本：
+#   KERNEL_SWEEP=1 bash run/run_lipp_matrix.sh
+# 如果还需要 log1p/cbrt 的完整消融，可以额外设置：
+#   FULL_KERNEL_SWEEP=1 bash run/run_lipp_matrix.sh
+# 验证紧凑叶节点时可以设置：
+#   LEAF_SWEEP=1 bash run/run_lipp_matrix.sh
+# 其中 *_compact 是强制小叶子紧凑化，*_adaptive_compact 是按局部成本模型自适应开启。
+# 也可以手动指定：
+#   INDICES="lipp lipphybrid_identity lipphybrid_aggressive lipphybrid_sqrt" bash run/run_lipp_matrix.sh
+KERNEL_SWEEP="${KERNEL_SWEEP:-0}"
+FULL_KERNEL_SWEEP="${FULL_KERNEL_SWEEP:-0}"
+LEAF_SWEEP="${LEAF_SWEEP:-0}"
+if [[ "${FULL_KERNEL_SWEEP}" == "1" && -z "${INDICES:-}" ]]; then
+  INDICES="lipp lipphybrid_identity lipphybrid_fallback lipphybrid_aggressive lipphybrid_log1p lipphybrid_sqrt lipphybrid_cbrt"
+elif [[ "${LEAF_SWEEP}" == "1" && -z "${INDICES:-}" ]]; then
+  INDICES="lipp lipphybrid_identity lipphybrid_compact lipphybrid_adaptive_compact lipphybrid_aggressive lipphybrid_aggressive_compact lipphybrid_aggressive_adaptive_compact"
+elif [[ "${KERNEL_SWEEP}" == "1" && -z "${INDICES:-}" ]]; then
+  INDICES="lipp lipphybrid_identity lipphybrid_fallback lipphybrid_aggressive lipphybrid_sqrt"
+else
+  INDICES="${INDICES:-lipp lipphybrid}"
+fi
 SEEDS="${SEEDS:-1866 1867 1868}"
 WORKLOADS="${WORKLOADS:-0.9:0.1 0.5:0.5 0.1:0.9}"
 
@@ -44,6 +61,12 @@ DRY_RUN="${DRY_RUN:-0}"
 # GRE 的 load_binary_data() 会把第一个 uint64 当作 key 数量，所以这里默认转换成 header+keys 格式。
 OSM_RAW_PATH="${OSM_RAW_PATH:-data/alexrobust/osm_antarctica_1m.bin}"
 OSM_GRE_PATH="${OSM_GRE_PATH:-data/alexrobust/osm_antarctica_1m.gre.bin}"
+# 新增 500万 版本
+OSM_5M_RAW_PATH="${OSM_5M_RAW_PATH:-data/alexrobust/osm_antarctica_5m.bin}"
+OSM_5M_GRE_PATH="${OSM_5M_GRE_PATH:-data/alexrobust/osm_antarctica_5m.gre.bin}"
+# 5M OSM 数据集体积更大，默认 auto：有 raw/gre 文件就加入实验，没有就跳过。
+# 可设置 INCLUDE_OSM5M=0 强制跳过，或 INCLUDE_OSM5M=1 要求必须存在。
+INCLUDE_OSM5M="${INCLUDE_OSM5M:-auto}"
 
 mkdir -p "${RESULT_DIR}"
 
@@ -53,6 +76,10 @@ DATASETS=(
   "both:data/alexrobust/synth_both_1M:64:64:1000:1000:1000000"
   "osm:${OSM_GRE_PATH}"
 )
+
+if [[ "${INCLUDE_OSM5M}" == "1" || ( "${INCLUDE_OSM5M}" == "auto" && ( -f "${OSM_5M_RAW_PATH}" || -f "${OSM_5M_GRE_PATH}" ) ) ]]; then
+  DATASETS+=("osm5m:${OSM_5M_GRE_PATH}")
+fi
 
 log() {
   printf '[%s] %s\n' "$(date '+%F %T')" "$*" | tee -a "${LOG_PATH}"
@@ -93,20 +120,33 @@ generate_datasets_if_needed() {
   done
 }
 
-prepare_osm_dataset() {
-  if [[ ! -f "${OSM_RAW_PATH}" ]]; then
-    log "缺少 OSM 原始数据集: ${OSM_RAW_PATH}"
-    log "也可以通过 OSM_RAW_PATH=/path/to/file 覆盖路径"
-    exit 1
-  fi
+prepare_uint64_gre_dataset() {
+  local name="$1"
+  local raw_path="$2"
+  local gre_path="$3"
+  local required="$4"
 
-  if [[ -f "${OSM_GRE_PATH}" && "${OSM_GRE_PATH}" -nt "${OSM_RAW_PATH}" ]]; then
+  if [[ ! -f "${raw_path}" ]]; then
+    if [[ -f "${gre_path}" ]]; then
+      # 已经有转换后的 GRE 文件时，不再要求 raw 文件存在。
+      return
+    fi
+    if [[ "${required}" == "1" ]]; then
+      log "缺少 ${name} 原始数据集: ${raw_path}"
+      log "也可以通过 ${name}_RAW_PATH=/path/to/file 覆盖路径"
+      exit 1
+    fi
+    log "跳过可选数据集 ${name}: 未找到 ${raw_path} 或 ${gre_path}"
     return
   fi
 
-  log "转换 OSM 数据为 GRE 二进制格式: ${OSM_RAW_PATH} -> ${OSM_GRE_PATH}"
-  mkdir -p "$(dirname "${OSM_GRE_PATH}")"
-  python3 - "${OSM_RAW_PATH}" "${OSM_GRE_PATH}" <<'PY'
+  if [[ -f "${gre_path}" && "${gre_path}" -nt "${raw_path}" ]]; then
+    return
+  fi
+
+  log "转换 ${name} 数据为 GRE 二进制格式: ${raw_path} -> ${gre_path}"
+  mkdir -p "$(dirname "${gre_path}")"
+  python3 - "${raw_path}" "${gre_path}" <<'PY'
 import os
 import shutil
 import struct
@@ -131,6 +171,20 @@ else:
         fout.write(struct.pack("<Q", count))
         shutil.copyfileobj(fin, fout)
 PY
+}
+
+prepare_osm_dataset() {
+  prepare_uint64_gre_dataset "OSM" "${OSM_RAW_PATH}" "${OSM_GRE_PATH}" 1
+
+  if [[ "${INCLUDE_OSM5M}" == "0" ]]; then
+    return
+  fi
+
+  local require_osm5m=0
+  if [[ "${INCLUDE_OSM5M}" == "1" ]]; then
+    require_osm5m=1
+  fi
+  prepare_uint64_gre_dataset "OSM_5M" "${OSM_5M_RAW_PATH}" "${OSM_5M_GRE_PATH}" "${require_osm5m}"
 }
 
 validate_datasets() {
